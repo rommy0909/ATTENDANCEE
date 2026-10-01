@@ -48,6 +48,8 @@
     @media(min-width:901px){.shell{width:auto;flex:1;min-width:0}}
     #app{width:100%;min-width:0}
     .selected-subject-caption{display:block;margin-bottom:3px;font-size:11px;text-transform:uppercase}
+    .no-class{color:var(--muted)!important;background:#1a2433!important}
+    .weekly-status-grid{width:max-content;min-width:100%;table-layout:auto}.weekly-status-grid th,.weekly-status-grid td{min-width:96px;text-align:center;vertical-align:middle}.weekly-status-grid th:first-child,.weekly-status-grid td:first-child{position:sticky;left:0;z-index:1;min-width:180px;text-align:left;background:var(--panel)}.weekly-status-grid th:nth-child(2),.weekly-status-grid td:nth-child(2){min-width:100px}.weekly-status-grid th small{display:block;margin-top:4px;font-size:10px;font-weight:400;white-space:nowrap}.past-record-table:has(.weekly-status-grid){overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}.status-legend{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.status-legend span{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:11px}.status-legend b{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:4px}@media(max-width:600px){.weekly-status-grid th:first-child,.weekly-status-grid td:first-child{position:static;left:auto;z-index:auto}}
   </style>
 </head>
 <body>
@@ -106,6 +108,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, updateProfile, setPersistence, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
@@ -133,14 +136,14 @@
     authPersistenceReady.then(()=>onAuthStateChanged(auth,async user=>{if(!user){cloudData={students:[],classes:[],records:[]};showAuth();return}try{await loadCloudData(user);showApp({id:user.uid,email:user.email,fullName:user.displayName||pendingProfileName||user.email});pendingProfileName=''}catch(error){authMessage(`Unable to load cloud data: ${error.message}`)}}));
     function formatWords(value){return String(value??'').trim().toLowerCase().replace(/\s+/g,' ').replace(/(^|[\s'-])[a-z]/g,match=>match.toUpperCase())} function formatCourse(value){return String(value??'').trim().toUpperCase().replace(/\s+/g,' ')} function displayStudentName(value){return formatWords(value)}
     [['signupSurname',formatWords],['signupFirstName',formatWords],['signupMiddleName',formatWords],['studentSurname',formatWords],['studentFirstName',formatWords],['studentMiddleName',formatWords],['studentCourse',formatCourse],['className',formatWords],['subjectName',formatWords]].forEach(([id,formatter])=>$(id).addEventListener('blur',event=>{event.target.value=formatter(event.target.value)}));
-    function localDate(value){let date=value instanceof Date?value:new Date(value);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`} function recordDate(record){return record.scannedAt?localDate(record.scannedAt):record.date} function today(){return localDate(new Date())} function mins(v){let [h,m]=(v||'00:00').split(':').map(Number);return h*60+m} function time(v){let [h,m]=v.split(':').map(Number);return `${((h+11)%12)+1}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`} function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+    function localDate(value){let date=value instanceof Date?value:new Date(value);return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`} function recordDate(record){return record.date||(record.scannedAt?localDate(record.scannedAt):undefined)} function today(){return localDate(new Date())} function mins(v){let [h,m]=(v||'00:00').split(':').map(Number);return h*60+m} function time(v){let [h,m]=v.split(':').map(Number);return `${((h+11)%12)+1}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`} function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
     function showPage(page){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===page));document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));const titles={scanner:['Scanner','Record attendance using a student QR code.'],classes:['Create Subject','Create a subject, schedule, and enrollment list.'],manage:['Manage Subject','Choose a subject to view details or edit its settings.'],subjectDetails:['Subject Details','Review this subject and its enrolled students.'],overview:['Class Overview','Review monthly attendance and subject records.'],pastRecords:['Past Records','Review and download completed monthly attendance records.']};$('pageTitle').textContent=titles[page][0];$('pageSubtitle').textContent=titles[page][1];if(page==='classes'&&currentAccount)$('teacherName').value=currentAccount.fullName}
     document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>{showPage(b.dataset.page);if(b.dataset.page==='overview')renderOverview();if(b.dataset.page==='manage')renderClasses();if(b.dataset.page==='pastRecords')renderPastRecords()}));
     function notify(message,type='success'){let toast=document.createElement('div');toast.className=`toast ${type==='error'?'error':''}`;toast.textContent=message;document.body.appendChild(toast);setTimeout(()=>toast.remove(),2600)}
     function getSchedules(subject){if(Array.isArray(subject.schedules)&&subject.schedules.length)return subject.schedules;return (subject.days||[]).map(day=>({day,start:subject.startTime||'08:00',end:subject.endTime||'09:00'}))} function scheduleHours(schedules){return schedules.reduce((total,schedule)=>total+Math.max(0,(mins(schedule.end)-mins(schedule.start))/60),0)}
     function mergedDaySchedules(subject,day){let schedules=getSchedules(subject).filter(item=>item.day===day).sort((a,b)=>mins(a.start)-mins(b.start));if(!schedules.length)return[];let blocks=[];schedules.forEach(schedule=>{let last=blocks[blocks.length-1];if(last&&mins(schedule.start)<=mins(last.end))last.end=mins(schedule.end)>mins(last.end)?schedule.end:last.end;else blocks.push({...schedule})});return blocks} function scheduleKey(schedule){return `${schedule.day}|${schedule.start}|${schedule.end}`}
     function scheduleFor(subject,day,date){return date&&!recordingOnForDate(subject,date)?null:mergedDaySchedules(subject,day)[0]} function recordingOnForDate(subject,date){let pauses=Array.isArray(subject.recordingPauses)?subject.recordingPauses:[];if(date>today()||subject.recordingStartDate&&date<subject.recordingStartDate)return false;return (subject.recordingEnabled!==false||pauses.some(pause=>pause.end&&date>=pause.end))&&!pauses.some(pause=>date>=pause.start&&(!pause.end||date<pause.end))}
-    function activeScheduleFor(subject,day,current){return mergedDaySchedules(subject,day).find(schedule=>mins(schedule.start)<=current&&current<=mins(schedule.end))}
+    function activeScheduleFor(subject,day,current){return mergedDaySchedules(subject,day).find(schedule=>mins(schedule.start)<=current&&current<mins(schedule.end))}
     function hasScheduleConflict(schedules){let grouped={};schedules.forEach(schedule=>(grouped[schedule.day]??=[]).push(schedule));return Object.values(grouped).some(items=>{items.sort((a,b)=>mins(a.start)-mins(b.start));return items.some((item,index)=>index>0&&mins(item.start)<mins(items[index-1].end))})} function hasTeacherScheduleConflict(schedules,editingId){return getClasses().filter(subject=>subject.id!==editingId).some(subject=>getSchedules(subject).some(existing=>schedules.some(schedule=>schedule.day===existing.day&&mins(schedule.start)<mins(existing.end)&&mins(existing.start)<mins(schedule.end))))}
     function renderSchedules(items=[{day:'Monday',start:'08:00',end:'11:00'}]){$('scheduleList').innerHTML=items.map((item,index)=>`<div class="schedule-row"><div class="field"><label>Day</label><select class="schedule-day">${DAYS.map(day=>`<option value="${day}" ${item.day===day?'selected':''}>${day}</option>`).join('')}</select></div><div class="field"><label>In</label><input class="schedule-start" type="time" value="${item.start||'08:00'}" required></div><div class="field"><label>Out</label><input class="schedule-end" type="time" value="${item.end||'09:00'}" required></div><button class="button remove-schedule" type="button" data-remove-schedule="${index}" aria-label="Remove schedule">X</button></div>`).join('');$('scheduleList').querySelectorAll('[data-remove-schedule]').forEach(button=>button.onclick=()=>{button.closest('.schedule-row').remove()})}
     function readSchedules(){return [...$('scheduleList').querySelectorAll('.schedule-row')].map(row=>({day:row.querySelector('.schedule-day').value,start:row.querySelector('.schedule-start').value,end:row.querySelector('.schedule-end').value}))}
@@ -232,6 +235,258 @@
     const overviewMonthInput=$('weekPicker'),overviewWeekField=overviewMonthInput.closest('.field'),overviewRangeLabel=$('weekRangeLabel'),overviewWeekSelect=document.createElement('select');overviewMonthInput.type='month';overviewMonthInput.value=today().slice(0,7);overviewMonthInput.previousElementSibling.textContent='Month';overviewWeekSelect.id='weekOfMonth';overviewWeekSelect.setAttribute('aria-label','Week of month');const overviewWeekLabel=document.createElement('label');overviewWeekLabel.htmlFor='weekOfMonth';overviewWeekLabel.textContent='Week';overviewWeekField.insertBefore(overviewWeekLabel,overviewRangeLabel);overviewWeekField.insertBefore(overviewWeekSelect,overviewRangeLabel);function refreshMonthWeekOptions(){let month=overviewMonthInput.value||today().slice(0,7),weeks=monthWeeks(month),current=weeks.find(week=>today()>=week.start&&today()<=week.end);overviewWeekSelect.innerHTML=weeks.map(week=>`<option value="${week.key}">Week ${week.number}</option>`).join('');overviewWeekSelect.value=(month===today().slice(0,7)?current:weeks[0])?.key||weeks[0]?.key||'';overviewRangeLabel.textContent=formatWeekRange(overviewWeekSelect.value)}overviewMonthInput.onchange=()=>{refreshMonthWeekOptions();renderAttendance()};overviewWeekSelect.onchange=()=>{overviewRangeLabel.textContent=formatWeekRange(overviewWeekSelect.value);renderAttendance()};refreshMonthWeekOptions();installReportDateLimits();
     downloadWeeklyRosterCsv=(subject,key)=>{if(!subject)return;let dates=weekDates(key);if(!dates.length)return;let rows=weeklyRosterCsvRows(subject,key),blob=new Blob([rows.map(row=>row.map(csvCell).join(',')).join('\n')],{type:'text/csv'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${dates[0]}-to-${dates[dates.length-1]}.csv`;link.click();URL.revokeObjectURL(link.href)};
     renderPastRecords=()=>{let subjects=getClasses().slice().sort((a,b)=>a.subjectName.localeCompare(b.subjectName)||a.className.localeCompare(b.className)),list=$('pastSubjectList');list.innerHTML=subjects.map(subject=>{let weeks=weeksWithPastRecords(subject);return `<button class="past-subject-button ${subject.id===selectedPastClassId?'active':''}" type="button" data-past-subject="${subject.id}"><strong>${esc(subject.subjectName)}</strong><small>${esc(subject.className)} · ${weeks.length?`${weeks.length} week(s) recorded`:'No records yet'}</small></button>`}).join('')||'<div class="empty">No subjects created yet.</div>';let detail=$('pastRecordDetail');if(!subjects.length){selectedPastClassId=null;detail.innerHTML='<div class="empty">Create a subject to view past records.</div>';return}if(!selectedPastClassId||!subjects.some(subject=>subject.id===selectedPastClassId))selectedPastClassId=subjects[0].id;let subject=subjects.find(item=>item.id===selectedPastClassId),weeks=weeksWithPastRecords(subject);list.querySelectorAll('[data-past-subject]').forEach(button=>button.onclick=()=>{selectedPastClassId=button.dataset.pastSubject;selectedPastMonth=null;pastWeekDetailOpen=false;renderPastRecords()});if(!weeks.length){pastWeekDetailOpen=false;detail.innerHTML=`<div class="panel-head"><div><small class="muted selected-subject-caption">Selected subject</small><h2>${esc(subject.subjectName)}</h2><span class="muted">${esc(subject.className)} · ${esc(subject.teacherName)}</span></div></div><div class="empty">No completed weekly records for this subject yet.</div>`;return}if(!selectedPastMonth||!weeks.includes(selectedPastMonth))selectedPastMonth=weeks[0];let week=monthWeek(selectedPastMonth),dates=weekDates(selectedPastMonth),records=getRecords().filter(record=>record.classId===subject.id&&recordDate(record)>=week.start&&recordDate(record)<=week.end).sort((a,b)=>recordDate(a).localeCompare(recordDate(b))||displayStudentName(a.name).localeCompare(displayStudentName(b.name)));detail.innerHTML=`<div class="panel-head"><div><small class="muted selected-subject-caption">Selected subject</small><h2>${esc(subject.subjectName)}</h2><span class="muted">${esc(subject.className)} · ${esc(subject.teacherName)}</span></div></div><p class="muted">Recorded weeks</p><div class="past-month-list past-week-list ${pastWeekDetailOpen?'hidden':''}">${weeks.map(key=>`<button class="past-month-button past-week-button ${key===selectedPastMonth?'active':''}" type="button" data-past-week="${key}">${formatWeekRange(key)}</button>`).join('')}</div><div class="past-selected-month ${pastWeekDetailOpen?'':'hidden'}"><button class="button small" type="button" data-past-back>Back to weeks</button><h3>${formatWeekRange(selectedPastMonth)}</h3><button class="button small primary" type="button" data-past-download>Download CSV</button></div><div class="past-record-table ${pastWeekDetailOpen?'':'hidden'}"><table><thead><tr><th>Student</th><th>Date</th><th>Schedule</th><th>Status</th><th>Units</th></tr></thead><tbody>${records.map(record=>`<tr><td>${esc(displayStudentName(record.name))}</td><td>${esc(recordDate(record))}</td><td>${record.scheduleStart&&record.scheduleEnd?`${time(record.scheduleStart)} - ${time(record.scheduleEnd)}`:'Recorded'}</td><td class="${record.status==='present'?'present':record.status==='late'?'late':record.status==='excused'?'excused':'absent'}">${record.status}</td><td>${Number(record.units||0).toFixed(2)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">No attendance records for this week.</td></tr>'}</tbody></table></div>`;detail.querySelectorAll('[data-past-week]').forEach(button=>button.onclick=()=>{selectedPastMonth=button.dataset.pastWeek;pastWeekDetailOpen=true;renderPastRecords()});detail.querySelector('[data-past-back]').onclick=()=>{pastWeekDetailOpen=false;renderPastRecords()};detail.querySelector('[data-past-download]').onclick=()=>downloadWeeklyRosterCsv(subject,selectedPastMonth)};
+    const renderOverviewBeforeSelectionFix=renderOverview;renderOverview=()=>{let selectedId=selectedClassId;renderOverviewBeforeSelectionFix();if(selectedId&&getClasses().some(subject=>subject.id===selectedId)&&selectedClassId!==selectedId){selectedClassId=selectedId;renderOverviewWithActiveFirst()}};
+    const saveClassesBeforeTimestampFix=saveClasses;saveClasses=value=>{let previous=cloudData.classes||[],now=new Date().toISOString();value=value.map(subject=>{let before=previous.find(item=>item.id===subject.id);if(!before)return {...subject,recordingStartedAt:subject.recordingEnabled!==false?now:null};if(before.recordingEnabled!==false&&subject.recordingEnabled===false)return {...subject,recordingStoppedAt:now};if(before.recordingEnabled===false&&subject.recordingEnabled!==false)return {...subject,recordingStartedAt:now};return subject});saveClassesBeforeTimestampFix(value)};
+    const renderOverviewBeforeRecordingTime=renderOverview;renderOverview=()=>{renderOverviewBeforeRecordingTime();let subject=selectedClass(),recordedAt=subject?.recordingEnabled===false?subject.recordingStoppedAt:subject?.recordingStartedAt;$('toggleRecording').title=recordedAt?`${subject.recordingEnabled===false?'Stopped':'Started'} ${new Date(recordedAt).toLocaleString()}`:`Recording ${subject?.recordingEnabled===false?'paused':'on'}`};
+    let overviewSubjectChosen=false;
+    const renderOverviewWithoutActiveOverride=renderOverviewWithActiveFirst;
+    renderOverview=()=>{
+      if(!overviewSubjectChosen){renderOverviewBeforeRecordingTime();return}
+      renderOverviewWithoutActiveOverride();
+      let subject=selectedClass();
+      if(!subject)return;
+      let active=activeSubject()?.subject,recordedAt=subject.recordingEnabled===false?subject.recordingStoppedAt:subject.recordingStartedAt;
+      $('overviewTitle').textContent=`Selected subject: ${subject.subjectName} · ${subject.className}`;
+      $('overviewMeta').insertAdjacentHTML('beforeend',`<span>Scanner active now: ${active?`${esc(active.subjectName)} · ${esc(active.className)}`:'No subject schedule active'}</span>`);
+      $('toggleRecording').title=recordedAt?`${subject.recordingEnabled===false?'Stopped':'Started'} ${new Date(recordedAt).toLocaleString()}`:`Recording ${subject.recordingEnabled===false?'paused':'on'}`;
+    };
+    document.addEventListener('click',event=>{let button=event.target.closest('[data-overview-subject]');if(!button)return;overviewSubjectChosen=true;selectedClassId=button.dataset.overviewSubject},true);
+    function normalizedAttendanceStatus(record){let status=String(record?.status||'present').toLowerCase();return ['present','late','excused','absent'].includes(status)?status:'present'}
+    renderAttendance=()=>{
+      let subject=selectedClass();if(!subject)return;
+      let dates=weekDates(selectedWeekStart()),scheduledDates=dates.filter(date=>scheduleFor(subject,DAYS[new Date(`${date}T12:00:00`).getDay()],date)),start=dates[0],end=dates[dates.length-1];
+      let records=getRecords().filter(record=>record.classId===subject.id&&recordDate(record)>=start&&recordDate(record)<=end),students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>a.name.localeCompare(b.name));
+      let availableUnits=scheduledDates.reduce((total,date)=>{let weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];return total+(recordingOnForDate(subject,date)?scheduleHours(mergedDaySchedules(subject,weekday)):0)},0);
+      let html='<thead><tr><th>Student (A-Z)</th>'+scheduledDates.map(date=>`<th>${formatFullDate(date)}<br><small>${DAYS[new Date(`${date}T12:00:00`).getDay()]}</small></th>`).join('')+'<th>Completed / Days</th><th>Units</th></tr></thead><tbody>';
+      students.forEach(student=>{
+        let mine=records.filter(record=>record.studentId===student.studentId),attended=scheduledDates.filter(date=>mine.some(record=>recordDate(record)===date&&normalizedAttendanceStatus(record)!=='absent')).length,units=mine.reduce((total,record)=>total+Number(record.units||0),0);
+        html+=`<tr><td><strong>${esc(displayStudentName(student.name))}</strong><br><span class="muted">Student ID: ${esc(student.studentId)}</span><br><button class="button small" type="button" data-overview-edit-student="${student.studentId}">Edit attendance</button></td>`;
+        html+=scheduledDates.map(date=>{let dayRecords=mine.filter(record=>recordDate(record)===date),record=dayRecords.find(item=>normalizedAttendanceStatus(item)==='present')||dayRecords.find(item=>normalizedAttendanceStatus(item)==='excused')||dayRecords.find(item=>normalizedAttendanceStatus(item)==='late')||dayRecords[0],status=record?normalizedAttendanceStatus(record):'absent',mark=status==='present'?'P':status==='late'?'L':status==='excused'?'E':'A';return `<td title="${record?`${dayRecords.length} block(s), latest status ${status} on ${date}`:`Scheduled ${date}`}" class="${status}">${mark}</td>`}).join('');
+        html+=`<td><strong>${attended} / ${scheduledDates.length}</strong></td><td>${units.toFixed(2)} / ${availableUnits.toFixed(2)}</td></tr>`;
+      });
+      if(!scheduledDates.length)html+='<tr><td colspan="3" class="empty">No scheduled class meetings in this week.</td></tr>';
+      $('attendanceTable').innerHTML=html+'</tbody>';$('overviewStats').classList.add('hidden');$('attendanceTable').querySelectorAll('[data-overview-edit-student]').forEach(button=>button.onclick=()=>renderStudentAttendanceEditor(subject.id,button.dataset.overviewEditStudent));
+    };
+    weeksWithPastRecords=subject=>{
+      let dates=getRecords().filter(record=>record.classId===subject.id&&recordDate(record)&&recordDate(record)<=today()).map(record=>recordDate(record));
+      let todayDate=today(),todayWeek=monthWeeks(todayDate.slice(0,7)).find(week=>todayDate>=week.start&&todayDate<=week.end);
+      let currentTime=new Date().getHours()*60+new Date().getMinutes(),ongoing=subject.recordingEnabled!==false&&recordingOnForDate(subject,todayDate)&&Boolean(activeScheduleFor(subject,DAYS[new Date(`${todayDate}T12:00:00`).getDay()],currentTime));
+      if(ongoing&&todayWeek)dates.push(todayDate);
+      return [...new Set(dates.map(date=>monthWeeks(date.slice(0,7)).find(week=>date>=week.start&&date<=week.end)?.key).filter(Boolean))].map(monthWeek).filter(Boolean).sort((a,b)=>b.start.localeCompare(a.start)).map(week=>week.key);
+    };
+    weeklyRosterCsvRows=(subject,start)=>{
+      let blocks=[];
+      weekDates(start).filter(date=>date<=today()&&recordingOnForDate(subject,date)).forEach(date=>{
+        let weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];
+        mergedDaySchedules(subject,weekday).forEach(schedule=>blocks.push({date,weekday,schedule,key:scheduleKey(schedule)}));
+      });
+      let students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name)));
+      let rows=[['Student Name','Student ID','Course',...blocks.map(block=>`${formatFullDate(block.date)} ${block.weekday} (${time(block.schedule.start)}-${time(block.schedule.end)})`)]];
+      students.forEach(student=>rows.push([displayStudentName(student.name),student.studentId,student.course||'',...blocks.map(block=>{
+        let record=getRecords().find(item=>item.classId===subject.id&&item.studentId===student.studentId&&recordDate(item)===block.date&&(item.scheduleKey===block.key||!item.scheduleKey));
+        if(!record)return 'Absent';
+        let status=normalizedAttendanceStatus(record),label=status==='present'?'Present':status==='late'?'Late':status==='excused'?'Excused':'Absent';
+        let scannedAt=record.scannedAt?new Date(record.scannedAt):null,checkedIn=scannedAt&&!Number.isNaN(scannedAt.getTime())?` - ${time(`${String(scannedAt.getHours()).padStart(2,'0')}:${String(scannedAt.getMinutes()).padStart(2,'0')}`)}`:'';
+        return `${label}${checkedIn}`;
+      })]));
+      return rows;
+    };
+    const saveClassesBeforeScheduleReconcile=saveClasses;
+    saveClasses=value=>{
+      let previous=getClasses(),removedScheduleKeys=new Map();
+      previous.forEach(oldSubject=>{
+        let nextSubject=value.find(subject=>subject.id===oldSubject.id);if(!nextSubject)return;
+        let oldKeys=new Set(DAYS.flatMap(day=>mergedDaySchedules(oldSubject,day).map(scheduleKey))),nextKeys=new Set(DAYS.flatMap(day=>mergedDaySchedules(nextSubject,day).map(scheduleKey))),removed=[...oldKeys].filter(key=>!nextKeys.has(key));
+        if(removed.length)removedScheduleKeys.set(oldSubject.id,new Set(removed));
+      });
+      saveClassesBeforeScheduleReconcile(value);
+      if(!removedScheduleKeys.size)return;
+      let retained=getRecords().filter(record=>{
+        let removed=removedScheduleKeys.get(record.classId);if(!removed)return true;
+        let key=record.scheduleKey;
+        if(!key&&record.scheduleStart&&record.scheduleEnd&&recordDate(record)){let day=DAYS[new Date(`${recordDate(record)}T12:00:00`).getDay()];key=`${day}|${record.scheduleStart}|${record.scheduleEnd}`}
+        return !key||!removed.has(key);
+      });
+      if(retained.length!==getRecords().length){saveRecords(retained);notify('Attendance records from changed schedule blocks were removed.')}
+    };
+    const renderPastRecordsBeforeScheduleCleanup=renderPastRecords;
+    renderPastRecords=()=>{
+      let validKeys=new Map(getClasses().map(subject=>[subject.id,new Set(DAYS.flatMap(day=>mergedDaySchedules(subject,day).map(scheduleKey)))]));
+      let records=getRecords(),retained=records.filter(record=>{
+        let keys=validKeys.get(record.classId);if(!keys)return true;
+        let key=record.scheduleKey;
+        if(!key&&record.scheduleStart&&record.scheduleEnd&&recordDate(record))key=`${DAYS[new Date(`${recordDate(record)}T12:00:00`).getDay()]}|${record.scheduleStart}|${record.scheduleEnd}`;
+        return !key||keys.has(key);
+      });
+      if(retained.length!==records.length)saveRecords(retained);
+      renderPastRecordsBeforeScheduleCleanup();
+    };
+    const saveClassesBeforeReportPauseTimes=saveClasses;
+    saveClasses=value=>{
+      let previous=getClasses(),timestamp=new Date().toISOString();
+      value=value.map(subject=>{
+        let before=previous.find(item=>item.id===subject.id);if(!before)return subject;
+        let pauses=(before.recordingPauses||subject.recordingPauses||[]).map(pause=>({...pause}));
+        if(before.recordingEnabled!==false&&subject.recordingEnabled===false)pauses.push({start:today(),end:null,stoppedAt:timestamp});
+        if(before.recordingEnabled===false&&subject.recordingEnabled!==false){let open=[...pauses].reverse().find(pause=>!pause.end);if(open){open.end=today();open.resumedAt=timestamp}}
+        return {...subject,recordingPauses:pauses};
+      });
+      saveClassesBeforeReportPauseTimes(value);
+    };
+    function reportBlockIsNoClass(subject,date,schedule){
+      if(subject.recordingStartDate&&date<subject.recordingStartDate)return true;
+      let pauses=Array.isArray(subject.recordingPauses)?subject.recordingPauses:[],blockStart=new Date(`${date}T${schedule.start}:00`),blockEnd=new Date(`${date}T${schedule.end}:00`),hasTimedPause=false;
+      for(let pause of pauses){
+        if(pause.stoppedAt){
+          hasTimedPause=true;let stoppedAt=new Date(pause.stoppedAt),resumedAt=pause.resumedAt?new Date(pause.resumedAt):new Date();
+          if(blockStart>=stoppedAt&&blockEnd<=resumedAt)return true;
+        }else if(date>=pause.start&&(!pause.end||date<pause.end))return true;
+      }
+      if(!hasTimedPause&&!pauses.length&&subject.recordingEnabled===false)return date===today();
+      return !hasTimedPause&&!recordingOnForDate(subject,date);
+    }
+    function recordIsForNoClassBlock(subject,record){
+      let date=recordDate(record);if(!date)return false;
+      let day=DAYS[new Date(`${date}T12:00:00`).getDay()],blocks=mergedDaySchedules(subject,day),block=blocks.find(item=>record.scheduleKey? scheduleKey(item)===record.scheduleKey:record.scheduleStart&&record.scheduleEnd?item.start===record.scheduleStart&&item.end===record.scheduleEnd:blocks.length===1);
+      return Boolean(block&&reportBlockIsNoClass(subject,date,block));
+    }
+    const weeksWithPastRecordsBeforeNoClass=weeksWithPastRecords;
+    weeksWithPastRecords=subject=>{
+      let keys=new Set(weeksWithPastRecordsBeforeNoClass(subject)),pauses=subject.recordingPauses||[];
+      pauses.forEach(pause=>{
+        let start=pause.start,end=pause.end||today();if(!start)return;
+        for(let date=new Date(`${start}T12:00:00`),last=new Date(`${end}T12:00:00`);date<=last;date.setDate(date.getDate()+1)){
+          let value=localDate(date),blocks=mergedDaySchedules(subject,DAYS[date.getDay()]);
+          if(value<=today()&&blocks.some(block=>reportBlockIsNoClass(subject,value,block)))keys.add(monthWeeks(value.slice(0,7)).find(week=>value>=week.start&&value<=week.end)?.key);
+        }
+      });
+      return [...keys].filter(Boolean).sort((a,b)=>monthWeek(b).start.localeCompare(monthWeek(a).start));
+    };
+    renderAttendance=()=>{
+      let subject=selectedClass();if(!subject)return;
+      let dates=weekDates(selectedWeekStart()).filter(date=>date<=today()),scheduledDates=dates.filter(date=>mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()]).length),start=dates[0],end=dates[dates.length-1];
+      let records=getRecords().filter(record=>record.classId===subject.id&&recordDate(record)>=start&&recordDate(record)<=end),students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>a.name.localeCompare(b.name));
+      let availableUnits=scheduledDates.reduce((total,date)=>{let day=DAYS[new Date(`${date}T12:00:00`).getDay()],blocks=mergedDaySchedules(subject,day).filter(block=>!reportBlockIsNoClass(subject,date,block));return total+scheduleHours(blocks)},0);
+      let html='<thead><tr><th>Student (A-Z)</th>'+scheduledDates.map(date=>`<th>${formatFullDate(date)}<br><small>${DAYS[new Date(`${date}T12:00:00`).getDay()]}</small></th>`).join('')+'<th>Completed / Days</th><th>Units</th></tr></thead><tbody>';
+      students.forEach(student=>{
+        let mine=records.filter(record=>record.studentId===student.studentId),attended=scheduledDates.filter(date=>!mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()]).every(block=>reportBlockIsNoClass(subject,date,block))&&mine.some(record=>recordDate(record)===date&&normalizedAttendanceStatus(record)!=='absent'&&!recordIsForNoClassBlock(subject,record))).length,units=mine.reduce((total,record)=>total+(recordIsForNoClassBlock(subject,record)?0:Number(record.units||0)),0);
+        html+=`<tr><td><strong>${esc(displayStudentName(student.name))}</strong><br><span class="muted">Student ID: ${esc(student.studentId)}</span><br><button class="button small" type="button" data-overview-edit-student="${student.studentId}">Edit attendance</button></td>`;
+        html+=scheduledDates.map(date=>{let dayRecords=mine.filter(record=>recordDate(record)===date),blocks=mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()]),nc=blocks.length&&blocks.every(block=>reportBlockIsNoClass(subject,date,block)),record=dayRecords.find(item=>!recordIsForNoClassBlock(subject,item)&&['present','excused','late'].includes(normalizedAttendanceStatus(item)))||dayRecords.find(item=>!recordIsForNoClassBlock(subject,item)),status=nc?'nc':record?normalizedAttendanceStatus(record):'absent',mark=status==='present'?'P':status==='late'?'L':status==='excused'?'E':status==='nc'?'NC':'A';return `<td title="${status==='nc'?'Recording stopped for this class':record?`${dayRecords.length} block(s), latest status ${status} on ${date}`:`Scheduled ${date}`}" class="${status==='nc'?'no-class':status}">${mark}</td>`}).join('');
+        html+=`<td><strong>${attended} / ${scheduledDates.length}</strong></td><td>${units.toFixed(2)} / ${availableUnits.toFixed(2)}</td></tr>`;
+      });
+      if(!scheduledDates.length)html+='<tr><td colspan="3" class="empty">No scheduled class meetings in this week.</td></tr>';
+      $('attendanceTable').innerHTML=html+'</tbody>';$('overviewStats').classList.add('hidden');$('attendanceTable').querySelectorAll('[data-overview-edit-student]').forEach(button=>button.onclick=()=>renderStudentAttendanceEditor(subject.id,button.dataset.overviewEditStudent));
+    };
+    weeklyRosterCsvRows=(subject,start)=>{
+      let blocks=[];weekDates(start).filter(date=>date<=today()).forEach(date=>{let weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];mergedDaySchedules(subject,weekday).forEach(schedule=>blocks.push({date,weekday,schedule,key:scheduleKey(schedule)}))});
+      let students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name))),rows=[['Student Name','Student ID','Course',...blocks.map(block=>`${formatFullDate(block.date)} ${block.weekday} (${time(block.schedule.start)}-${time(block.schedule.end)})`)]];
+      students.forEach(student=>rows.push([displayStudentName(student.name),student.studentId,student.course||'',...blocks.map(block=>{
+        let record=getRecords().find(item=>item.classId===subject.id&&item.studentId===student.studentId&&recordDate(item)===block.date&&(item.scheduleKey===block.key||!item.scheduleKey)),status=record?normalizedAttendanceStatus(record):null,nc=reportBlockIsNoClass(subject,block.date,block.schedule);
+        if(nc)return 'NC';
+        if(record){let label=status==='present'?'Present':status==='late'?'Late':status==='excused'?'Excused':'Absent',scannedAt=record.scannedAt?new Date(record.scannedAt):null,checkedIn=scannedAt&&!Number.isNaN(scannedAt.getTime())?` - ${time(`${String(scannedAt.getHours()).padStart(2,'0')}:${String(scannedAt.getMinutes()).padStart(2,'0')}`)}`:'';return `${label}${checkedIn}`}
+        return 'Absent';
+      })]));
+      return rows;
+    };
+    const renderPastRecordsBeforeNoClass=renderPastRecords;
+    renderPastRecords=()=>{
+      renderPastRecordsBeforeNoClass();
+      let subject=getClasses().find(item=>item.id===selectedPastClassId),detail=$('pastRecordDetail'),week=monthWeek(selectedPastMonth),table=detail.querySelector('.past-record-table tbody');
+      if(!subject||!week||!table)return;
+      let dates=weekDates(selectedPastMonth).filter(date=>date<=today()),students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name))),rows=[];
+      dates.forEach(date=>mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()]).forEach(schedule=>students.forEach(student=>{
+        let record=getRecords().find(item=>item.classId===subject.id&&item.studentId===student.studentId&&recordDate(item)===date&&(item.scheduleKey===scheduleKey(schedule)||!item.scheduleKey)),recordStatus=record?normalizedAttendanceStatus(record):null,nc=reportBlockIsNoClass(subject,date,schedule),status=nc?'nc':recordStatus||'absent',label=status==='nc'?'NC':status;
+        rows.push(`<tr><td>${esc(displayStudentName(student.name))}</td><td>${date}</td><td>${time(schedule.start)} - ${time(schedule.end)}</td><td class="${status==='nc'?'no-class':status}">${label}</td><td>${Number(record?.units||0).toFixed(2)}</td></tr>`);
+      })));
+      table.innerHTML=rows.join('')||'<tr><td colspan="5" class="empty">No scheduled classes in this week.</td></tr>';
+    };
+    const renderPastRecordsBeforeNoClassRecordCleanup=renderPastRecords;
+    renderPastRecords=()=>{
+      let subjects=new Map(getClasses().map(subject=>[subject.id,subject])),records=getRecords(),retained=records.filter(record=>{let subject=subjects.get(record.classId);return !subject||!recordIsForNoClassBlock(subject,record)});
+      if(retained.length!==records.length)saveRecords(retained);
+      renderPastRecordsBeforeNoClassRecordCleanup();
+    };
+    const loadCloudDataBeforeNoClassCleanup=loadCloudData;
+    loadCloudData=async user=>{
+      await loadCloudDataBeforeNoClassCleanup(user);
+      let subjects=new Map(getClasses().map(subject=>[subject.id,subject])),records=getRecords(),retained=records.filter(record=>{let subject=subjects.get(record.classId);return !subject||!recordIsForNoClassBlock(subject,record)});
+      if(retained.length!==records.length)saveRecords(retained);
+    };
+    function weeklyReportBlocks(subject,weekKey){
+      return weekDates(weekKey).filter(date=>date<=today()).flatMap(date=>{
+        let weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];
+        return mergedDaySchedules(subject,weekday).map(schedule=>({date,weekday,schedule,key:scheduleKey(schedule)}));
+      });
+    }
+    function weeklyReportStudents(subject){return getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name)))}
+    function weeklyReportRecord(subject,student,block){return getRecords().find(record=>record.classId===subject.id&&record.studentId===student.studentId&&recordDate(record)===block.date&&(record.scheduleKey===block.key||!record.scheduleKey))}
+    function weeklyReportCode(subject,student,block){
+      if(reportBlockIsNoClass(subject,block.date,block.schedule))return 'NC';
+      let record=weeklyReportRecord(subject,student,block);if(!record)return 'A';
+      let status=normalizedAttendanceStatus(record);return status==='present'?'P':status==='late'?'L':status==='excused'?'E':'A';
+    }
+    function reportCodeClass(code){return code==='P'?'present':code==='L'?'late':code==='E'?'excused':code==='NC'?'no-class':'absent'}
+    renderAttendance=()=>{
+      let subject=selectedClass();if(!subject)return;
+      let blocks=weeklyReportBlocks(subject,selectedWeekStart()),students=weeklyReportStudents(subject),header='<thead><tr><th>Student (A-Z)</th>'+blocks.map(block=>`<th><strong>${block.weekday.slice(0,3).toUpperCase()}</strong><small>${time(block.schedule.start)} - ${time(block.schedule.end)}</small></th>`).join('')+'<th>Attended / Blocks</th><th>Units</th></tr></thead><tbody>';
+      students.forEach(student=>{
+        let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);
+        header+=`<tr><td><strong>${esc(displayStudentName(student.name))}</strong><br><button class="button small" type="button" data-overview-edit-student="${student.studentId}">Edit attendance</button></td>`+blocks.map((block,index)=>`<td title="${block.date} · ${time(block.schedule.start)}-${time(block.schedule.end)}" class="${reportCodeClass(codes[index])}">${codes[index]}</td>`).join('')+`<td><strong>${attended} / ${blocks.length}</strong></td><td>${units.toFixed(2)}</td></tr>`;
+      });
+      if(!blocks.length)header+='<tr><td colspan="3" class="empty">No scheduled class meetings in this week.</td></tr>';
+      $('attendanceTable').innerHTML=header+'</tbody>';$('overviewStats').classList.add('hidden');$('attendanceTable').querySelectorAll('[data-overview-edit-student]').forEach(button=>button.onclick=()=>renderStudentAttendanceEditor(subject.id,button.dataset.overviewEditStudent));
+    };
+    const renderPastRecordsBeforeCompactGrid=renderPastRecords;
+    renderPastRecords=()=>{
+      renderPastRecordsBeforeCompactGrid();
+      let subject=getClasses().find(item=>item.id===selectedPastClassId),week=monthWeek(selectedPastMonth),table=$('pastRecordDetail').querySelector('.past-record-table table');
+      if(!subject||!week||!table)return;
+      let blocks=weeklyReportBlocks(subject,selectedPastMonth),students=weeklyReportStudents(subject);
+      table.classList.add('weekly-status-grid');
+      $('pastRecordDetail').querySelector('[data-past-download]').textContent='Download Excel';
+      $('pastRecordDetail').querySelector('.past-record-table').insertAdjacentHTML('beforebegin','<div class="status-legend"><span><b class="present">P</b> Present</span><span><b class="late">L</b> Late</span><span><b class="absent">A</b> Absent</span><span><b class="excused">E</b> Excused</span><span><b class="no-class">NC</b> No Class</span></div>');
+      table.innerHTML=`<thead><tr><th rowspan="2">Student</th><th rowspan="2">Course</th>${blocks.map((block,index)=>{let first=index===0||blocks[index-1].date!==block.date;return first?`<th colspan="${blocks.filter(item=>item.date===block.date).length}">${block.weekday.toUpperCase()}</th>`:''}).join('')}<th rowspan="2">Attended / Blocks</th><th rowspan="2">Total Units</th></tr><tr>${blocks.map(block=>`<th><small>${time(block.schedule.start)} - ${time(block.schedule.end)}</small></th>`).join('')}</tr></thead><tbody>${students.map(student=>{let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);return `<tr><td>${esc(displayStudentName(student.name))}</td><td>${esc(student.course||'')}</td>${blocks.map((block,index)=>{let code=codes[index],record=weeklyReportRecord(subject,student,block),label=code==='NC'?'NC':code;return `<td class="${reportCodeClass(code)}" title="${block.date} · ${time(block.schedule.start)}-${time(block.schedule.end)}${record?.scannedAt?` · Scanned ${new Date(record.scannedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:''}">${label}</td>`}).join('')}<td><strong>${attended} / ${blocks.length}</strong></td><td>${units.toFixed(2)}</td></tr>`}).join('')||'<tr><td colspan="5" class="empty">No enrolled students.</td></tr>'}</tbody>`;
+    };
+    const reportStatusStyles={P:{fill:'C6EFCE',font:'006100'},L:{fill:'FFEB9C',font:'9C6500'},A:{fill:'FFC7CE',font:'9C0006'},E:{fill:'DDEBF7',font:'1F4E78'},NC:{fill:'D9E1F2',font:'44546A'}};
+    function downloadStyledRosterFallback(subject,weekKey,blocks,students){
+      let title=`${esc(subject.subjectName)} · ${esc(subject.className)} · ${esc(formatWeekRange(weekKey))}`,dayHeaders=blocks.map((block,index)=>index===0||blocks[index-1].date!==block.date?`<th colspan="${blocks.filter(item=>item.date===block.date).length}">${block.weekday.toUpperCase()}</th>`:'').join(''),timeHeaders=blocks.map(block=>`<th>${time(block.schedule.start)} - ${time(block.schedule.end)}</th>`).join(''),rows=students.map(student=>{let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);return `<tr><td>${esc(displayStudentName(student.name))}</td><td>${esc(student.course||'')}</td>${blocks.map((block,index)=>{let code=codes[index],style=reportStatusStyles[code];return `<td style="background:#${style.fill};color:#${style.font};font-weight:bold;text-align:center">${code}</td>`}).join('')}<td>${attended} / ${blocks.length}</td><td>${units.toFixed(2)}</td></tr>`}).join(''),html=`<html><head><meta charset="utf-8"><style>body{font-family:Arial}table{border-collapse:collapse}th,td{border:1px solid #ccd3df;padding:8px}th{background:#1b2a41;color:white}small{color:#667085}</style></head><body><h2>${title}</h2><p>P Present · L Late · A Absent · E Excused · NC No Class</p><table><thead><tr><th rowspan="2">Student</th><th rowspan="2">Course</th>${dayHeaders}<th rowspan="2">Attended / Blocks</th><th rowspan="2">Total Units</th></tr><tr>${timeHeaders}</tr></thead><tbody>${rows}</tbody></table></body></html>`,blob=new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${weekKey}.xls`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+    }
+    downloadWeeklyRosterCsv=async(subject,weekKey)=>{
+      if(!subject)return;
+      let blocks=weeklyReportBlocks(subject,weekKey),students=weeklyReportStudents(subject);
+      if(!window.ExcelJS){downloadStyledRosterFallback(subject,weekKey,blocks,students);return}
+      let workbook=new window.ExcelJS.Workbook(),sheet=workbook.addWorksheet('Attendance');sheet.views=[{state:'frozen',xSplit:2,ySplit:5}];sheet.pageSetup={orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0};
+      let totalColumns=Math.max(4,blocks.length+4);sheet.mergeCells(1,1,1,totalColumns);sheet.getCell(1,1).value=`${subject.subjectName} · ${subject.className} · ${formatWeekRange(weekKey)}`;sheet.getCell(1,1).font={bold:true,size:16,color:{argb:'FFFFFFFF'}};sheet.getCell(1,1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF111827'}};sheet.getCell(1,1).alignment={vertical:'middle'};sheet.getRow(1).height=30;
+      sheet.mergeCells(2,1,2,totalColumns);sheet.getCell(2,1).value='P Present  ·  L Late  ·  A Absent  ·  E Excused  ·  NC No Class';sheet.getCell(2,1).font={italic:true,color:{argb:'FF526174'}};
+      sheet.mergeCells(4,1,5,1);sheet.getCell(4,1).value='Student';sheet.mergeCells(4,2,5,2);sheet.getCell(4,2).value='Course';sheet.mergeCells(4,blocks.length+3,5,blocks.length+3);sheet.getCell(4,blocks.length+3).value='Attended / Blocks';sheet.mergeCells(4,blocks.length+4,5,blocks.length+4);sheet.getCell(4,blocks.length+4).value='Total Units';
+      for(let index=0;index<blocks.length;){let end=index+1;while(end<blocks.length&&blocks[end].date===blocks[index].date)end++;let column=index+3;sheet.mergeCells(4,column,4,column+(end-index)-1);sheet.getCell(4,column).value=blocks[index].weekday.toUpperCase();for(let offset=index;offset<end;offset++)sheet.getCell(5,offset+3).value=`${time(blocks[offset].schedule.start)} - ${time(blocks[offset].schedule.end)}`;index=end}
+      for(let row=4;row<=5;row++){sheet.getRow(row).height=row===4?25:30;for(let column=1;column<=totalColumns;column++){let cell=sheet.getCell(row,column);cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1B2A41'}};cell.font={bold:true,color:{argb:'FFFFFFFF'},size:row===4?10:9};cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:{style:'thin',color:{argb:'FF526174'}}}}}
+      sheet.getColumn(1).width=30;sheet.getColumn(2).width=14;for(let index=0;index<blocks.length;index++)sheet.getColumn(index+3).width=17;sheet.getColumn(blocks.length+3).width=20;sheet.getColumn(blocks.length+4).width=14;
+      students.forEach((student,index)=>{let row=sheet.getRow(index+6),codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,blockIndex)=>total+(['P','L','E'].includes(codes[blockIndex])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);row.getCell(1).value=displayStudentName(student.name);row.getCell(2).value=student.course||'';row.getCell(blocks.length+3).value=`${attended} / ${blocks.length}`;row.getCell(blocks.length+4).value=units;row.height=24;row.getCell(1).alignment={vertical:'middle'};row.getCell(2).alignment={horizontal:'center',vertical:'middle'};row.getCell(blocks.length+3).alignment={horizontal:'center',vertical:'middle'};row.getCell(blocks.length+4).alignment={horizontal:'center',vertical:'middle',numFmt:'0.00'};blocks.forEach((block,blockIndex)=>{let code=codes[blockIndex],cell=row.getCell(blockIndex+3),style=reportStatusStyles[code];cell.value=code;cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:`FF${style.fill}`}};cell.font={bold:true,color:{argb:`FF${style.font}`}};cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:{style:'hair',color:{argb:'FFD1D8E2'}}}})});
+      let buffer=await workbook.xlsx.writeBuffer(),blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${weekKey}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+    };
+    let subjectEditBaseline=null;
+    function subjectFormSnapshot(){return JSON.stringify({className:$('className').value,teacherName:$('teacherName').value,subjectName:$('subjectName').value,unitCount:$('unitCount').value,schedules:readSchedules(),studentIds:[...pendingStudentIds].sort()})}
+    function subjectEditIsDirty(){return Boolean($('editingClassId').value&&subjectEditBaseline&&subjectFormSnapshot()!==subjectEditBaseline)}
+    const editClassBeforeDirtyTracking=editClass;
+    editClass=id=>{editClassBeforeDirtyTracking(id);subjectEditBaseline=subjectFormSnapshot()};
+    const resetFormBeforeBlankSchedules=resetForm;
+    resetForm=()=>{subjectEditBaseline=null;resetFormBeforeBlankSchedules();renderSchedules([])};
+    function navigateAfterSubjectEdit(page){showPage(page);if(page==='overview')renderOverview();if(page==='manage')renderClasses();if(page==='pastRecords')renderPastRecords();document.querySelector('.sidebar').classList.remove('open')}
+    function saveEditedSubject(){let form=$('classForm');if(!form.reportValidity())return false;form.requestSubmit();return !$('editingClassId').value}
+    document.addEventListener('click',event=>{
+      let cancel=event.target.closest('#cancelEdit'),nav=event.target.closest('.nav-item');if(!cancel&&!nav||!$('editingClassId').value)return;
+      let dirty=subjectEditIsDirty(),destination=nav?.dataset.page;
+      if(dirty){
+        event.preventDefault();event.stopImmediatePropagation();
+        if(window.confirm('You have unsaved subject changes. Press OK to save; Cancel will discard them.')){if(saveEditedSubject()&&destination)navigateAfterSubjectEdit(destination)}
+        else{resetForm();if(destination)navigateAfterSubjectEdit(destination)}
+        return;
+      }
+      if(nav){event.preventDefault();event.stopImmediatePropagation();resetForm();navigateAfterSubjectEdit(destination)}
+    },true);
+    window.addEventListener('beforeunload',event=>{if(subjectEditIsDirty()){event.preventDefault();event.returnValue=''}});
+    $('exportCsv').textContent='Download Excel';
   </script>
 </body>
 </html>
