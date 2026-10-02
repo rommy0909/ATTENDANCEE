@@ -49,6 +49,7 @@
     #app{width:100%;min-width:0}
     .selected-subject-caption{display:block;margin-bottom:3px;font-size:11px;text-transform:uppercase}
     .no-class{color:var(--muted)!important;background:#1a2433!important}
+    .pending-attendance{color:var(--muted)!important;background:#0c1422!important}
     .weekly-status-grid{width:max-content;min-width:100%;table-layout:auto}.weekly-status-grid th,.weekly-status-grid td{min-width:96px;text-align:center;vertical-align:middle}.weekly-status-grid th:first-child,.weekly-status-grid td:first-child{position:sticky;left:0;z-index:1;min-width:180px;text-align:left;background:var(--panel)}.weekly-status-grid th:nth-child(2),.weekly-status-grid td:nth-child(2){min-width:100px}.weekly-status-grid th small{display:block;margin-top:4px;font-size:10px;font-weight:400;white-space:nowrap}.past-record-table:has(.weekly-status-grid){overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}.status-legend{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.status-legend span{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:11px}.status-legend b{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:4px}@media(max-width:600px){.weekly-status-grid th:first-child,.weekly-status-grid td:first-child{position:static;left:auto;z-index:auto}}
   </style>
 </head>
@@ -141,7 +142,8 @@
     document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>{showPage(b.dataset.page);if(b.dataset.page==='overview')renderOverview();if(b.dataset.page==='manage')renderClasses();if(b.dataset.page==='pastRecords')renderPastRecords()}));
     function notify(message,type='success'){let toast=document.createElement('div');toast.className=`toast ${type==='error'?'error':''}`;toast.textContent=message;document.body.appendChild(toast);setTimeout(()=>toast.remove(),2600)}
     function getSchedules(subject){if(Array.isArray(subject.schedules)&&subject.schedules.length)return subject.schedules;return (subject.days||[]).map(day=>({day,start:subject.startTime||'08:00',end:subject.endTime||'09:00'}))} function scheduleHours(schedules){return schedules.reduce((total,schedule)=>total+Math.max(0,(mins(schedule.end)-mins(schedule.start))/60),0)}
-    function mergedDaySchedules(subject,day){let schedules=getSchedules(subject).filter(item=>item.day===day).sort((a,b)=>mins(a.start)-mins(b.start));if(!schedules.length)return[];let blocks=[];schedules.forEach(schedule=>{let last=blocks[blocks.length-1];if(last&&mins(schedule.start)<=mins(last.end))last.end=mins(schedule.end)>mins(last.end)?schedule.end:last.end;else blocks.push({...schedule})});return blocks} function scheduleKey(schedule){return `${schedule.day}|${schedule.start}|${schedule.end}`}
+    function schedulesForDate(subject,date){let history=(subject.scheduleHistory||[]).filter(revision=>revision.startDate<=date&&revision.endDate>=date).sort((a,b)=>b.startDate.localeCompare(a.startDate));return history[0]?.schedules||getSchedules(subject)}
+    function mergedDaySchedules(subject,day,date){let schedules=(date?schedulesForDate(subject,date):getSchedules(subject)).filter(item=>item.day===day).sort((a,b)=>mins(a.start)-mins(b.start));if(!schedules.length)return[];let blocks=[];schedules.forEach(schedule=>{let last=blocks[blocks.length-1];if(last&&mins(schedule.start)<=mins(last.end))last.end=mins(schedule.end)>mins(last.end)?schedule.end:last.end;else blocks.push({...schedule})});return blocks} function scheduleKey(schedule){return `${schedule.day}|${schedule.start}|${schedule.end}`}
     function scheduleFor(subject,day,date){return date&&!recordingOnForDate(subject,date)?null:mergedDaySchedules(subject,day)[0]} function recordingOnForDate(subject,date){let pauses=Array.isArray(subject.recordingPauses)?subject.recordingPauses:[];if(date>today()||subject.recordingStartDate&&date<subject.recordingStartDate)return false;return (subject.recordingEnabled!==false||pauses.some(pause=>pause.end&&date>=pause.end))&&!pauses.some(pause=>date>=pause.start&&(!pause.end||date<pause.end))}
     function activeScheduleFor(subject,day,current){return mergedDaySchedules(subject,day).find(schedule=>mins(schedule.start)<=current&&current<mins(schedule.end))}
     function hasScheduleConflict(schedules){let grouped={};schedules.forEach(schedule=>(grouped[schedule.day]??=[]).push(schedule));return Object.values(grouped).some(items=>{items.sort((a,b)=>mins(a.start)-mins(b.start));return items.some((item,index)=>index>0&&mins(item.start)<mins(items[index-1].end))})} function hasTeacherScheduleConflict(schedules,editingId){return getClasses().filter(subject=>subject.id!==editingId).some(subject=>getSchedules(subject).some(existing=>schedules.some(schedule=>schedule.day===existing.day&&mins(schedule.start)<mins(existing.end)&&mins(existing.start)<mins(schedule.end))))}
@@ -202,7 +204,7 @@
     const baseRenderStudentAttendanceEditor=renderStudentAttendanceEditor;renderStudentAttendanceEditor=(classId,studentId)=>{let full=$('fullAttendanceEditor'),old=$('attendanceEditor');if(!full)return;if(old)old.id='legacyAttendanceEditor';full.id='attendanceEditor';document.querySelectorAll('.page').forEach(page=>page.classList.toggle('active',page.id==='attendanceEditPage'));$('pageTitle').textContent='Edit Attendance';$('pageSubtitle').textContent='Update the selected student attendance.';try{baseRenderStudentAttendanceEditor(classId,studentId)}finally{full.id='fullAttendanceEditor';if(old)old.id='attendanceEditor'}full.classList.remove('hidden');let save=full.querySelector('[data-save-attendance]'),head=full.querySelector('.panel-head'),close=full.querySelector('[data-close-attendance]');if(save&&head)head.appendChild(save);if(close)close.onclick=()=>{full.classList.add('hidden');selectedClassId=classId;showPage('overview');renderOverview()}};
     const subjectScopedAttendanceEditor=renderStudentAttendanceEditor;renderStudentAttendanceEditor=(classId,studentId)=>{subjectScopedAttendanceEditor(classId,studentId);let subject=getClasses().find(item=>item.id===classId),student=getStudents().find(item=>item.studentId===studentId),editor=$('fullAttendanceEditor');if(!subject||!student||!editor)return;editor.dataset.classId=classId;let allowed=new Set(),month=monthValue();for(let day=1;day<=monthDays(month);day++){let date=`${month}-${String(day).padStart(2,'0')}`,weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];mergedDaySchedules(subject,weekday).forEach(schedule=>allowed.add(`${date}|${scheduleKey(schedule)}`))}let records=getRecords().filter(record=>record.classId===classId&&record.studentId===studentId);editor.querySelectorAll('.attendance-edit-row').forEach(row=>{let select=row.querySelector('select'),rowKey=select?`${select.dataset.attendanceDate}|${select.dataset.attendanceKey}`:'';if(select&&(!allowed.has(rowKey)||!records.some(record=>recordDate(record)===select.dataset.attendanceDate&&(!record.scheduleKey||record.scheduleKey===select.dataset.attendanceKey))))row.remove()});let heading=editor.querySelector('.panel-head h3');if(heading)heading.textContent=`Edit ${subject.subjectName} (${subject.className}) attendance: ${displayStudentName(student.name)}`};
     const baseRenderLiveAttendance=renderLiveAttendance;renderLiveAttendance=()=>{let active=activeSubject();if(!active)return baseRenderLiveAttendance();let originalRecords=cloudData.records;cloudData.records=originalRecords.filter(record=>record.classId!==active.subject.id||active.subject.studentIds.includes(record.studentId));try{baseRenderLiveAttendance()}finally{cloudData.records=originalRecords}};
-    function tick(){$('clock').textContent=new Date().toLocaleString([], {dateStyle:'medium',timeStyle:'short'});renderActiveClass();autoStartCamera()}seed();renderSchedules();renderStudents();renderClasses();renderActiveClass();tick();if(currentAccount)showApp(currentAccount);else showAuth();setInterval(tick,30000);
+    function tick(){$('clock').textContent=new Date().toLocaleString([], {dateStyle:'medium',timeStyle:'short'});renderActiveClass();autoStartCamera();if(currentAccount&&$('overview').classList.contains('active'))renderAttendance();if(currentAccount&&$('pastRecords').classList.contains('active'))renderPastRecords()}seed();renderSchedules();renderStudents();renderClasses();renderActiveClass();tick();if(currentAccount)showApp(currentAccount);else showAuth();setInterval(tick,30000);
     const originalSaveClasses=saveClasses;saveClasses=value=>{let previous=cloudData.classes||[];value=value.map(subject=>{let before=previous.find(item=>item.id===subject.id),pauses=Array.isArray(before?.recordingPauses)?before.recordingPauses.map(pause=>({...pause})):Array.isArray(subject.recordingPauses)?subject.recordingPauses.map(pause=>({...pause})):[];if(before&&before.recordingEnabled!==false&&subject.recordingEnabled===false&&!pauses.some(pause=>!pause.end))pauses.push({start:today(),end:null});if(before&&before.recordingEnabled===false&&subject.recordingEnabled!==false){let open=pauses.find(pause=>!pause.end);if(open)open.end=today()}return {...subject,recordingPauses:pauses,recordingStartDate:before?.recordingStartDate||subject.recordingStartDate||today()}});originalSaveClasses(value)};pastMonths=subject=>{let currentMonth=today().slice(0,7);return [...new Set(getRecords().filter(record=>record.classId===subject.id).map(record=>recordDate(record)?.slice(0,7)).filter(month=>month&&month<currentMonth))].sort().reverse()}
     const originalClassSubmit=$('classForm').onsubmit;$('classForm').onsubmit=e=>{let schedules=readSchedules(),editingId=$('editingClassId').value;if(hasTeacherScheduleConflict(schedules,editingId)){e.preventDefault();notify('Schedule conflict: this teacher already has a subject at the same day and time.','error');return}originalClassSubmit(e)};const originalRenderAttendance=renderAttendance;renderAttendance=()=>{originalRenderAttendance();let subject=selectedClass(),month=monthValue(),table=$('attendanceTable');if(!subject||!table.tHead?.rows[0])return;let hiddenColumns=[],column=1;for(let day=1;day<=monthDays(month);day++){let date=`${month}-${String(day).padStart(2,'0')}`,weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];if(scheduleFor(subject,weekday)){if(!recordingOnForDate(subject,date))hiddenColumns.push(column);column++}}hiddenColumns.reverse().forEach(index=>{table.tHead.rows[0].deleteCell(index);[...table.tBodies].forEach(body=>[...body.rows].forEach(row=>row.deleteCell(index)))})};$('monthPicker').onchange=renderAttendance;
     const baseRenderAttendance=renderAttendance;renderAttendance=()=>{baseRenderAttendance();let subject=selectedClass(),month=monthValue(),table=$('attendanceTable');if(!subject||!table.tBodies.length)return;let activeUnits=0;for(let day=1;day<=monthDays(month);day++){let date=`${month}-${String(day).padStart(2,'0')}`,weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];if(recordingOnForDate(subject,date))activeUnits+=scheduleHours(mergedDaySchedules(subject,weekday))}let total=activeUnits.toFixed(2);[...table.tBodies].forEach(body=>[...body.rows].forEach(row=>{let cell=row.cells[row.cells.length-1];if(cell){let recorded=Number.parseFloat(cell.textContent)||0;cell.textContent=`${recorded.toFixed(2)} / ${total}`}}))};
@@ -293,30 +295,18 @@
     };
     const saveClassesBeforeScheduleReconcile=saveClasses;
     saveClasses=value=>{
-      let previous=getClasses(),removedScheduleKeys=new Map();
-      previous.forEach(oldSubject=>{
-        let nextSubject=value.find(subject=>subject.id===oldSubject.id);if(!nextSubject)return;
-        let oldKeys=new Set(DAYS.flatMap(day=>mergedDaySchedules(oldSubject,day).map(scheduleKey))),nextKeys=new Set(DAYS.flatMap(day=>mergedDaySchedules(nextSubject,day).map(scheduleKey))),removed=[...oldKeys].filter(key=>!nextKeys.has(key));
-        if(removed.length)removedScheduleKeys.set(oldSubject.id,new Set(removed));
-      });
       saveClassesBeforeScheduleReconcile(value);
-      if(!removedScheduleKeys.size)return;
-      let retained=getRecords().filter(record=>{
-        let removed=removedScheduleKeys.get(record.classId);if(!removed)return true;
-        let key=record.scheduleKey;
-        if(!key&&record.scheduleStart&&record.scheduleEnd&&recordDate(record)){let day=DAYS[new Date(`${recordDate(record)}T12:00:00`).getDay()];key=`${day}|${record.scheduleStart}|${record.scheduleEnd}`}
-        return !key||!removed.has(key);
-      });
-      if(retained.length!==getRecords().length){saveRecords(retained);notify('Attendance records from changed schedule blocks were removed.')}
     };
     const renderPastRecordsBeforeScheduleCleanup=renderPastRecords;
     renderPastRecords=()=>{
-      let validKeys=new Map(getClasses().map(subject=>[subject.id,new Set(DAYS.flatMap(day=>mergedDaySchedules(subject,day).map(scheduleKey)))]));
+      let subjects=new Map(getClasses().map(subject=>[subject.id,subject]));
       let records=getRecords(),retained=records.filter(record=>{
-        let keys=validKeys.get(record.classId);if(!keys)return true;
+        let subject=subjects.get(record.classId);if(!subject)return true;
         let key=record.scheduleKey;
-        if(!key&&record.scheduleStart&&record.scheduleEnd&&recordDate(record))key=`${DAYS[new Date(`${recordDate(record)}T12:00:00`).getDay()]}|${record.scheduleStart}|${record.scheduleEnd}`;
-        return !key||keys.has(key);
+        let date=recordDate(record);if(!key&&record.scheduleStart&&record.scheduleEnd&&date)key=`${DAYS[new Date(`${date}T12:00:00`).getDay()]}|${record.scheduleStart}|${record.scheduleEnd}`;
+        if(!key||!date)return true;
+        let day=DAYS[new Date(`${date}T12:00:00`).getDay()],keys=new Set(mergedDaySchedules(subject,day,date).map(scheduleKey));
+        return !keys.size||keys.has(key);
       });
       if(retained.length!==records.length)saveRecords(retained);
       renderPastRecordsBeforeScheduleCleanup();
@@ -347,7 +337,7 @@
     }
     function recordIsForNoClassBlock(subject,record){
       let date=recordDate(record);if(!date)return false;
-      let day=DAYS[new Date(`${date}T12:00:00`).getDay()],blocks=mergedDaySchedules(subject,day),block=blocks.find(item=>record.scheduleKey? scheduleKey(item)===record.scheduleKey:record.scheduleStart&&record.scheduleEnd?item.start===record.scheduleStart&&item.end===record.scheduleEnd:blocks.length===1);
+      let day=DAYS[new Date(`${date}T12:00:00`).getDay()],blocks=mergedDaySchedules(subject,day,date),block=blocks.find(item=>record.scheduleKey? scheduleKey(item)===record.scheduleKey:record.scheduleStart&&record.scheduleEnd?item.start===record.scheduleStart&&item.end===record.scheduleEnd:blocks.length===1);
       return Boolean(block&&reportBlockIsNoClass(subject,date,block));
     }
     const weeksWithPastRecordsBeforeNoClass=weeksWithPastRecords;
@@ -356,7 +346,7 @@
       pauses.forEach(pause=>{
         let start=pause.start,end=pause.end||today();if(!start)return;
         for(let date=new Date(`${start}T12:00:00`),last=new Date(`${end}T12:00:00`);date<=last;date.setDate(date.getDate()+1)){
-          let value=localDate(date),blocks=mergedDaySchedules(subject,DAYS[date.getDay()]);
+          let value=localDate(date),blocks=mergedDaySchedules(subject,DAYS[date.getDay()],value);
           if(value<=today()&&blocks.some(block=>reportBlockIsNoClass(subject,value,block)))keys.add(monthWeeks(value.slice(0,7)).find(week=>value>=week.start&&value<=week.end)?.key);
         }
       });
@@ -394,7 +384,7 @@
       let subject=getClasses().find(item=>item.id===selectedPastClassId),detail=$('pastRecordDetail'),week=monthWeek(selectedPastMonth),table=detail.querySelector('.past-record-table tbody');
       if(!subject||!week||!table)return;
       let dates=weekDates(selectedPastMonth).filter(date=>date<=today()),students=getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name))),rows=[];
-      dates.forEach(date=>mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()]).forEach(schedule=>students.forEach(student=>{
+      dates.forEach(date=>mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()],date).forEach(schedule=>students.forEach(student=>{
         let record=getRecords().find(item=>item.classId===subject.id&&item.studentId===student.studentId&&recordDate(item)===date&&(item.scheduleKey===scheduleKey(schedule)||!item.scheduleKey)),recordStatus=record?normalizedAttendanceStatus(record):null,nc=reportBlockIsNoClass(subject,date,schedule),status=nc?'nc':recordStatus||'absent',label=status==='nc'?'NC':status;
         rows.push(`<tr><td>${esc(displayStudentName(student.name))}</td><td>${date}</td><td>${time(schedule.start)} - ${time(schedule.end)}</td><td class="${status==='nc'?'no-class':status}">${label}</td><td>${Number(record?.units||0).toFixed(2)}</td></tr>`);
       })));
@@ -413,19 +403,20 @@
       if(retained.length!==records.length)saveRecords(retained);
     };
     function weeklyReportBlocks(subject,weekKey){
-      return weekDates(weekKey).filter(date=>date<=today()).flatMap(date=>{
+      let currentDate=today();
+      return weekDates(weekKey).filter(date=>date<=currentDate).flatMap(date=>{
         let weekday=DAYS[new Date(`${date}T12:00:00`).getDay()];
-        return mergedDaySchedules(subject,weekday).map(schedule=>({date,weekday,schedule,key:scheduleKey(schedule)}));
+        return mergedDaySchedules(subject,weekday,date).map(schedule=>({date,weekday,schedule,key:scheduleKey(schedule)}));
       });
     }
     function weeklyReportStudents(subject){return getStudents().filter(student=>subject.studentIds.includes(student.studentId)).sort((a,b)=>displayStudentName(a.name).localeCompare(displayStudentName(b.name)))}
     function weeklyReportRecord(subject,student,block){return getRecords().find(record=>record.classId===subject.id&&record.studentId===student.studentId&&recordDate(record)===block.date&&(record.scheduleKey===block.key||!record.scheduleKey))}
     function weeklyReportCode(subject,student,block){
       if(reportBlockIsNoClass(subject,block.date,block.schedule))return 'NC';
-      let record=weeklyReportRecord(subject,student,block);if(!record)return 'A';
+      let record=weeklyReportRecord(subject,student,block);if(!record)return block.date===today()&&mins(block.schedule.end)>new Date().getHours()*60+new Date().getMinutes()?'-':'A';
       let status=normalizedAttendanceStatus(record);return status==='present'?'P':status==='late'?'L':status==='excused'?'E':'A';
     }
-    function reportCodeClass(code){return code==='P'?'present':code==='L'?'late':code==='E'?'excused':code==='NC'?'no-class':'absent'}
+    function reportCodeClass(code){return code==='P'?'present':code==='L'?'late':code==='E'?'excused':code==='NC'?'no-class':code==='-'?'pending-attendance':'absent'}
     renderAttendance=()=>{
       let subject=selectedClass();if(!subject)return;
       let blocks=weeklyReportBlocks(subject,selectedWeekStart()),students=weeklyReportStudents(subject),header='<thead><tr><th>Student (A-Z)</th>'+blocks.map(block=>`<th><strong>${block.weekday.slice(0,3).toUpperCase()}</strong><small>${time(block.schedule.start)} - ${time(block.schedule.end)}</small></th>`).join('')+'<th>Attended / Blocks</th><th>Units</th></tr></thead><tbody>';
@@ -444,26 +435,62 @@
       let blocks=weeklyReportBlocks(subject,selectedPastMonth),students=weeklyReportStudents(subject);
       table.classList.add('weekly-status-grid');
       $('pastRecordDetail').querySelector('[data-past-download]').textContent='Download Excel';
-      $('pastRecordDetail').querySelector('.past-record-table').insertAdjacentHTML('beforebegin','<div class="status-legend"><span><b class="present">P</b> Present</span><span><b class="late">L</b> Late</span><span><b class="absent">A</b> Absent</span><span><b class="excused">E</b> Excused</span><span><b class="no-class">NC</b> No Class</span></div>');
+      $('pastRecordDetail').querySelector('.past-record-table').insertAdjacentHTML('beforebegin','<div class="status-legend"><span><b class="present">P</b> Present</span><span><b class="late">L</b> Late</span><span><b class="absent">A</b> Absent</span><span><b class="excused">E</b> Excused</span><span><b class="pending-attendance">-</b> Pending</span><span><b class="no-class">NC</b> No Class</span></div>');
       table.innerHTML=`<thead><tr><th rowspan="2">Student</th><th rowspan="2">Course</th>${blocks.map((block,index)=>{let first=index===0||blocks[index-1].date!==block.date;return first?`<th colspan="${blocks.filter(item=>item.date===block.date).length}">${block.weekday.toUpperCase()}</th>`:''}).join('')}<th rowspan="2">Attended / Blocks</th><th rowspan="2">Total Units</th></tr><tr>${blocks.map(block=>`<th><small>${time(block.schedule.start)} - ${time(block.schedule.end)}</small></th>`).join('')}</tr></thead><tbody>${students.map(student=>{let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);return `<tr><td>${esc(displayStudentName(student.name))}</td><td>${esc(student.course||'')}</td>${blocks.map((block,index)=>{let code=codes[index],record=weeklyReportRecord(subject,student,block),label=code==='NC'?'NC':code;return `<td class="${reportCodeClass(code)}" title="${block.date} · ${time(block.schedule.start)}-${time(block.schedule.end)}${record?.scannedAt?` · Scanned ${new Date(record.scannedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:''}">${label}</td>`}).join('')}<td><strong>${attended} / ${blocks.length}</strong></td><td>${units.toFixed(2)}</td></tr>`}).join('')||'<tr><td colspan="5" class="empty">No enrolled students.</td></tr>'}</tbody>`;
     };
-    const reportStatusStyles={P:{fill:'C6EFCE',font:'006100'},L:{fill:'FFEB9C',font:'9C6500'},A:{fill:'FFC7CE',font:'9C0006'},E:{fill:'DDEBF7',font:'1F4E78'},NC:{fill:'D9E1F2',font:'44546A'}};
+    const reportStatusStyles={P:{fill:'C6EFCE',font:'006100'},L:{fill:'FFEB9C',font:'9C6500'},A:{fill:'FFC7CE',font:'9C0006'},E:{fill:'DDEBF7',font:'1F4E78'},NC:{fill:'D9E1F2',font:'44546A'},'-':{fill:'E2E8F0',font:'526174'}};
     function downloadStyledRosterFallback(subject,weekKey,blocks,students){
-      let title=`${esc(subject.subjectName)} · ${esc(subject.className)} · ${esc(formatWeekRange(weekKey))}`,dayHeaders=blocks.map((block,index)=>index===0||blocks[index-1].date!==block.date?`<th colspan="${blocks.filter(item=>item.date===block.date).length}">${block.weekday.toUpperCase()}</th>`:'').join(''),timeHeaders=blocks.map(block=>`<th>${time(block.schedule.start)} - ${time(block.schedule.end)}</th>`).join(''),rows=students.map(student=>{let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);return `<tr><td>${esc(displayStudentName(student.name))}</td><td>${esc(student.course||'')}</td>${blocks.map((block,index)=>{let code=codes[index],style=reportStatusStyles[code];return `<td style="background:#${style.fill};color:#${style.font};font-weight:bold;text-align:center">${code}</td>`}).join('')}<td>${attended} / ${blocks.length}</td><td>${units.toFixed(2)}</td></tr>`}).join(''),html=`<html><head><meta charset="utf-8"><style>body{font-family:Arial}table{border-collapse:collapse}th,td{border:1px solid #ccd3df;padding:8px}th{background:#1b2a41;color:white}small{color:#667085}</style></head><body><h2>${title}</h2><p>P Present · L Late · A Absent · E Excused · NC No Class</p><table><thead><tr><th rowspan="2">Student</th><th rowspan="2">Course</th>${dayHeaders}<th rowspan="2">Attended / Blocks</th><th rowspan="2">Total Units</th></tr><tr>${timeHeaders}</tr></thead><tbody>${rows}</tbody></table></body></html>`,blob=new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${weekKey}.xls`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+      let title=`${esc(subject.subjectName)} · ${esc(subject.className)} · ${esc(formatWeekRange(weekKey))}`,dayHeaders=blocks.map((block,index)=>index===0||blocks[index-1].date!==block.date?`<th colspan="${blocks.filter(item=>item.date===block.date).length}">${block.weekday.toUpperCase()}</th>`:'').join(''),timeHeaders=blocks.map(block=>`<th>${time(block.schedule.start)} - ${time(block.schedule.end)}</th>`).join(''),rows=students.map(student=>{let codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,index)=>total+(['P','L','E'].includes(codes[index])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);return `<tr><td>${esc(displayStudentName(student.name))}</td><td>${esc(student.course||'')}</td>${blocks.map((block,index)=>{let code=codes[index],style=reportStatusStyles[code];return `<td style="background:#${style.fill};color:#${style.font};font-weight:bold;text-align:center">${code}</td>`}).join('')}<td>${attended} / ${blocks.length}</td><td>${units.toFixed(2)}</td></tr>`}).join(''),html=`<html><head><meta charset="utf-8"><style>body{font-family:Arial}table{border-collapse:collapse}th,td{border:1px solid #ccd3df;padding:8px}th{background:#1b2a41;color:white}small{color:#667085}</style></head><body><h2>${title}</h2><p>P Present · L Late · A Absent · E Excused · - Pending · NC No Class</p><table><thead><tr><th rowspan="2">Student</th><th rowspan="2">Course</th>${dayHeaders}<th rowspan="2">Attended / Blocks</th><th rowspan="2">Total Units</th></tr><tr>${timeHeaders}</tr></thead><tbody>${rows}</tbody></table></body></html>`,blob=new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${weekKey}.xls`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
     }
     downloadWeeklyRosterCsv=async(subject,weekKey)=>{
       if(!subject)return;
       let blocks=weeklyReportBlocks(subject,weekKey),students=weeklyReportStudents(subject);
       if(!window.ExcelJS){downloadStyledRosterFallback(subject,weekKey,blocks,students);return}
-      let workbook=new window.ExcelJS.Workbook(),sheet=workbook.addWorksheet('Attendance');sheet.views=[{state:'frozen',xSplit:2,ySplit:5}];sheet.pageSetup={orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0};
+      let workbook=new window.ExcelJS.Workbook(),sheet=workbook.addWorksheet('Attendance');sheet.views=[{state:'normal',zoomScale:110}];sheet.pageSetup={orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0};
       let totalColumns=Math.max(4,blocks.length+4);sheet.mergeCells(1,1,1,totalColumns);sheet.getCell(1,1).value=`${subject.subjectName} · ${subject.className} · ${formatWeekRange(weekKey)}`;sheet.getCell(1,1).font={bold:true,size:16,color:{argb:'FFFFFFFF'}};sheet.getCell(1,1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF111827'}};sheet.getCell(1,1).alignment={vertical:'middle'};sheet.getRow(1).height=30;
-      sheet.mergeCells(2,1,2,totalColumns);sheet.getCell(2,1).value='P Present  ·  L Late  ·  A Absent  ·  E Excused  ·  NC No Class';sheet.getCell(2,1).font={italic:true,color:{argb:'FF526174'}};
+      sheet.mergeCells(2,1,2,totalColumns);sheet.getCell(2,1).value='P Present  ·  L Late  ·  A Absent  ·  E Excused  ·  - Pending  ·  NC No Class';sheet.getCell(2,1).font={italic:true,color:{argb:'FF526174'}};
       sheet.mergeCells(4,1,5,1);sheet.getCell(4,1).value='Student';sheet.mergeCells(4,2,5,2);sheet.getCell(4,2).value='Course';sheet.mergeCells(4,blocks.length+3,5,blocks.length+3);sheet.getCell(4,blocks.length+3).value='Attended / Blocks';sheet.mergeCells(4,blocks.length+4,5,blocks.length+4);sheet.getCell(4,blocks.length+4).value='Total Units';
       for(let index=0;index<blocks.length;){let end=index+1;while(end<blocks.length&&blocks[end].date===blocks[index].date)end++;let column=index+3;sheet.mergeCells(4,column,4,column+(end-index)-1);sheet.getCell(4,column).value=blocks[index].weekday.toUpperCase();for(let offset=index;offset<end;offset++)sheet.getCell(5,offset+3).value=`${time(blocks[offset].schedule.start)} - ${time(blocks[offset].schedule.end)}`;index=end}
       for(let row=4;row<=5;row++){sheet.getRow(row).height=row===4?25:30;for(let column=1;column<=totalColumns;column++){let cell=sheet.getCell(row,column);cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1B2A41'}};cell.font={bold:true,color:{argb:'FFFFFFFF'},size:row===4?10:9};cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:{style:'thin',color:{argb:'FF526174'}}}}}
-      sheet.getColumn(1).width=30;sheet.getColumn(2).width=14;for(let index=0;index<blocks.length;index++)sheet.getColumn(index+3).width=17;sheet.getColumn(blocks.length+3).width=20;sheet.getColumn(blocks.length+4).width=14;
+      sheet.getColumn(1).width=42;sheet.getColumn(2).width=20;for(let index=0;index<blocks.length;index++)sheet.getColumn(index+3).width=26;sheet.getColumn(blocks.length+3).width=24;sheet.getColumn(blocks.length+4).width=18;
       students.forEach((student,index)=>{let row=sheet.getRow(index+6),codes=blocks.map(block=>weeklyReportCode(subject,student,block)),attended=codes.filter(code=>['P','L','E'].includes(code)).length,units=blocks.reduce((total,block,blockIndex)=>total+(['P','L','E'].includes(codes[blockIndex])?Number(weeklyReportRecord(subject,student,block)?.units||0):0),0);row.getCell(1).value=displayStudentName(student.name);row.getCell(2).value=student.course||'';row.getCell(blocks.length+3).value=`${attended} / ${blocks.length}`;row.getCell(blocks.length+4).value=units;row.height=24;row.getCell(1).alignment={vertical:'middle'};row.getCell(2).alignment={horizontal:'center',vertical:'middle'};row.getCell(blocks.length+3).alignment={horizontal:'center',vertical:'middle'};row.getCell(blocks.length+4).alignment={horizontal:'center',vertical:'middle',numFmt:'0.00'};blocks.forEach((block,blockIndex)=>{let code=codes[blockIndex],cell=row.getCell(blockIndex+3),style=reportStatusStyles[code];cell.value=code;cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:`FF${style.fill}`}};cell.font={bold:true,color:{argb:`FF${style.font}`}};cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:{style:'hair',color:{argb:'FFD1D8E2'}}}})});
       let buffer=await workbook.xlsx.writeBuffer(),blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`attendance-${subject.subjectName}-${weekKey}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+    };
+    const downloadWeeklyRosterCsvBeforePendingCheck=downloadWeeklyRosterCsv;
+    downloadWeeklyRosterCsv=async(subject,weekKey)=>{
+      if(!subject)return;
+      let currentTime=new Date().getHours()*60+new Date().getMinutes(),hasUnfinishedSession=weeklyReportBlocks(subject,weekKey).some(block=>block.date===today()&&mins(block.schedule.end)>currentTime&&!reportBlockIsNoClass(subject,block.date,block.schedule));
+      if(hasUnfinishedSession){notify('There is an active or upcoming schedule in this week. Download the report after the session ends.','error');return}
+      return downloadWeeklyRosterCsvBeforePendingCheck(subject,weekKey);
+    };
+    const saveClassesBeforeScheduleHistory=saveClasses;
+    saveClasses=value=>{
+      let todayDate=today(),previousDate=new Date(`${todayDate}T12:00:00`);previousDate.setDate(previousDate.getDate()-1);let historyEnd=localDate(previousDate),previous=cloudData.classes||[];
+      value=value.map(subject=>{
+        let before=previous.find(item=>item.id===subject.id);
+        if(!before)return {...subject,scheduleHistory:[],scheduleEffectiveFrom:subject.scheduleEffectiveFrom||todayDate};
+        let scheduleHistory=Array.isArray(before.scheduleHistory)?before.scheduleHistory.map(revision=>({...revision,schedules:revision.schedules.map(schedule=>({...schedule}))})):[],oldSchedules=getSchedules(before),newSchedules=getSchedules(subject),signature=schedules=>schedules.map(schedule=>`${schedule.day}|${schedule.start}|${schedule.end}`).sort().join(';');
+        if(signature(oldSchedules)!==signature(newSchedules)){
+          let earliestRecord=getRecords().filter(record=>record.classId===before.id).map(recordDate).filter(Boolean).sort()[0],effectiveFrom=before.scheduleEffectiveFrom||before.recordingStartDate||earliestRecord||'0000-01-01';
+          if(effectiveFrom<todayDate)scheduleHistory.push({startDate:effectiveFrom,endDate:historyEnd,schedules:oldSchedules.map(schedule=>({...schedule}))});
+          return {...subject,scheduleHistory,scheduleEffectiveFrom:todayDate};
+        }
+        return {...subject,scheduleHistory,scheduleEffectiveFrom:before.scheduleEffectiveFrom||before.recordingStartDate||todayDate};
+      });
+      saveClassesBeforeScheduleHistory(value);
+    };
+    const renderStudentAttendanceEditorBeforeScheduleHistory=renderStudentAttendanceEditor;
+    renderStudentAttendanceEditor=(classId,studentId)=>{
+      renderStudentAttendanceEditorBeforeScheduleHistory(classId,studentId);
+      let subject=getClasses().find(item=>item.id===classId),student=getStudents().find(item=>item.studentId===studentId),editor=$('fullAttendanceEditor');if(!subject||!student||!editor)return;
+      let weekKey=selectedWeekStart(),blocks=weekDates(weekKey).filter(date=>date<=today()).flatMap(date=>mergedDaySchedules(subject,DAYS[new Date(`${date}T12:00:00`).getDay()],date).map(schedule=>({date,schedule,key:scheduleKey(schedule)}))),records=getRecords().filter(record=>record.classId===classId&&record.studentId===studentId),list=editor.querySelector('.attendance-edit-list');if(!list)return;
+      list.innerHTML=blocks.map(block=>{let record=records.find(item=>recordDate(item)===block.date&&(!item.scheduleKey||item.scheduleKey===block.key)),status=record?.status||'absent';return `<label class="attendance-edit-row"><span>${formatFullDate(block.date)} · ${DAYS[new Date(`${block.date}T12:00:00`).getDay()]} · ${time(block.schedule.start)}-${time(block.schedule.end)}</span><select data-attendance-date="${block.date}" data-attendance-key="${block.key}"><option value="present" ${status==='present'?'selected':''}>P - Present</option><option value="absent" ${status==='absent'?'selected':''}>A - Absent</option><option value="late" ${status==='late'?'selected':''}>L - Late</option><option value="excused" ${status==='excused'?'selected':''}>E - Excused</option></select></label>`}).join('')||'<div class="empty">No scheduled class meetings in this week up to today.</div>';
+      let save=editor.querySelector('[data-save-attendance]');if(!save)return;
+      save.onclick=()=>{
+        let selected=[...editor.querySelectorAll('[data-attendance-date]')],blocksByKey=new Map(blocks.map(block=>[`${block.date}|${block.key}`,block])),existingRecords=getRecords(),nextRecords=existingRecords.filter(record=>record.classId!==classId||record.studentId!==studentId||!blocks.some(block=>recordDate(record)===block.date&&(!record.scheduleKey||record.scheduleKey===block.key)));
+        selected.forEach(select=>{let status=select.value;if(status==='absent')return;let block=blocksByKey.get(`${select.dataset.attendanceDate}|${select.dataset.attendanceKey}`);if(!block)return;let existing=existingRecords.find(record=>record.classId===classId&&record.studentId===studentId&&recordDate(record)===block.date&&(!record.scheduleKey||record.scheduleKey===block.key));nextRecords.push({key:existing?.key||`${block.date}-${classId}-${studentId}-${block.key}`,scheduleKey:block.key,scheduleStart:block.schedule.start,scheduleEnd:block.schedule.end,date:block.date,studentId,name:displayStudentName(student.name),gender:student.gender,classId,className:subject.className,subjectName:subject.subjectName,scannedAt:existing?.scannedAt||new Date().toISOString(),units:status==='present'?Number(scheduleHours([block.schedule]).toFixed(2)):0,status})});
+        saveRecords(nextRecords);notify('Weekly attendance updated successfully.');renderStudentAttendanceEditor(classId,studentId);
+      };
     };
     let subjectEditBaseline=null;
     function subjectFormSnapshot(){return JSON.stringify({className:$('className').value,teacherName:$('teacherName').value,subjectName:$('subjectName').value,unitCount:$('unitCount').value,schedules:readSchedules(),studentIds:[...pendingStudentIds].sort()})}
@@ -486,6 +513,14 @@
       if(nav){event.preventDefault();event.stopImmediatePropagation();resetForm();navigateAfterSubjectEdit(destination)}
     },true);
     window.addEventListener('beforeunload',event=>{if(subjectEditIsDirty()){event.preventDefault();event.returnValue=''}});
+    const renderPastRecordsBeforeActiveSubjectDefault=renderPastRecords;
+    renderPastRecords=()=>{
+      let active=activeSubject()?.subject;if(!selectedPastClassId&&active)selectedPastClassId=active.id;
+      renderPastRecordsBeforeActiveSubjectDefault();
+      let subject=getClasses().find(item=>item.id===selectedPastClassId),header=$('pastRecordDetail').querySelector('.panel-head > div');if(!subject||!header)return;
+      let schedule=header.querySelector('.selected-subject-schedule');if(!schedule){schedule=document.createElement('small');schedule.className='muted selected-subject-schedule';schedule.style.display='block';header.append(schedule)}
+      schedule.textContent=`Current schedule: ${getSchedules(subject).map(item=>`${item.day} ${time(item.start)}-${time(item.end)}`).join(' · ')}`;
+    };
     $('exportCsv').textContent='Download Excel';
   </script>
 </body>
